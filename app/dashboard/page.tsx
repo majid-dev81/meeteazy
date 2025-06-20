@@ -4,12 +4,7 @@ import { useEffect, useState } from 'react'
 import { auth, db } from '@/lib/firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import {
-  doc,
-  getDoc,
-  setDoc,
-  collection,
-  getDocs,
-  updateDoc,
+  doc, getDoc, setDoc, collection, getDocs, updateDoc,
 } from 'firebase/firestore'
 import { useRouter } from 'next/navigation'
 import resend from '@/lib/resend'
@@ -47,7 +42,6 @@ export default function DashboardPage() {
         const bookingSnap = await getDocs(collection(db, 'users', user.email, 'bookings'))
         const all = bookingSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
         setRequests(all)
-
         setLoading(false)
       }
     })
@@ -82,15 +76,12 @@ export default function DashboardPage() {
 
   const handleStatusUpdate = async (id: string, status: 'accepted' | 'declined') => {
     console.log('📩 handleStatusUpdate called for:', id, status)
-
     try {
       const ref = doc(db, 'users', email, 'bookings', id)
       await updateDoc(ref, { status })
       console.log('✅ Firestore status updated')
 
-      setRequests((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, status } : r))
-      )
+      setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)))
 
       const docSnap = await getDoc(ref)
       const data = docSnap.data()
