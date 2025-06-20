@@ -3,8 +3,16 @@
 import { useEffect, useState } from 'react'
 import { auth, db } from '@/lib/firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { doc, getDoc, setDoc, collection, getDocs, updateDoc } from 'firebase/firestore'
+import {
+  doc,
+  getDoc,
+  setDoc,
+  collection,
+  getDocs,
+  updateDoc,
+} from 'firebase/firestore'
 import { useRouter } from 'next/navigation'
+import resend from '@/lib/resend'
 
 const hours = Array.from({ length: 18 }, (_, i) => {
   const h = Math.floor(i / 2) + 9
@@ -76,9 +84,32 @@ export default function DashboardPage() {
     try {
       const ref = doc(db, 'users', email, 'bookings', id)
       await updateDoc(ref, { status })
-      setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)))
+
+      setRequests((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, status } : r))
+      )
+
+      const docSnap = await getDoc(ref)
+      const data = docSnap.data()
+      if (!data) return
+
+      const html = `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2>Hello ${data.name},</h2>
+          <p>Your booking request for <strong>${data.day} at ${data.time}</strong> has been <strong>${status}</strong>.</p>
+          ${data.subject ? `<p><strong>Subject:</strong> ${data.subject}</p>` : ''}
+          <p>Thanks for using Meeteazy!</p>
+        </div>
+      `
+
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM!,
+        to: data.email,
+        subject: `Your booking was ${status}`,
+        html,
+      })
     } catch (e) {
-      console.error('Failed to update booking status', e)
+      console.error('Failed to update booking status or send email', e)
     }
   }
 
@@ -167,7 +198,11 @@ export default function DashboardPage() {
           <button
             key={status}
             onClick={() => setFilter(status as any)}
-            className={`px-3 py-1 rounded border ${filter === status ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border-gray-300'}`}
+            className={`px-3 py-1 rounded border ${
+              filter === status
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-600 border-gray-300'
+            }`}
           >
             {status.charAt(0).toUpperCase() + status.slice(1)}
           </button>
@@ -179,15 +214,28 @@ export default function DashboardPage() {
       <ul className="space-y-4">
         {filteredRequests.map((req) => (
           <li key={req.id} className="border rounded p-4">
-            <p className="font-semibold">{req.name} ({req.email})</p>
-            <p>{req.day} at {req.time}</p>
-            <p>Status: <span className="font-medium capitalize">{req.status}</span></p>
+            <p className="font-semibold">
+              {req.name} ({req.email})
+            </p>
+            <p>
+              {req.day} at {req.time}
+            </p>
+            {req.subject && <p>Subject: {req.subject}</p>}
+            <p>
+              Status: <span className="font-medium capitalize">{req.status}</span>
+            </p>
             {req.status === 'pending' && (
               <div className="mt-2 space-x-2">
-                <button onClick={() => handleStatusUpdate(req.id, 'accepted')} className="bg-blue-600 text-white px-3 py-1 rounded">
+                <button
+                  onClick={() => handleStatusUpdate(req.id, 'accepted')}
+                  className="bg-blue-600 text-white px-3 py-1 rounded"
+                >
                   Accept
                 </button>
-                <button onClick={() => handleStatusUpdate(req.id, 'declined')} className="bg-gray-400 text-white px-3 py-1 rounded">
+                <button
+                  onClick={() => handleStatusUpdate(req.id, 'declined')}
+                  className="bg-gray-400 text-white px-3 py-1 rounded"
+                >
                   Decline
                 </button>
               </div>

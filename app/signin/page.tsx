@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { signInWithEmailAndPassword } from 'firebase/auth'
-import { auth } from '@/lib/firebase'
+import { auth, db } from '@/lib/firebase'
+import { doc, getDoc } from 'firebase/firestore'
 import { useRouter } from 'next/navigation'
 
 export default function SigninPage() {
@@ -16,9 +17,29 @@ export default function SigninPage() {
     e.preventDefault()
     setLoading(true)
     setError('')
+
     try {
-      await signInWithEmailAndPassword(auth, email, password)
-      router.push('/dashboard')
+      const userCredential = await signInWithEmailAndPassword(auth, email, password)
+      const user = userCredential.user
+
+      // Set cookie for verification status (used by middleware)
+      document.cookie = `isVerified=${user.emailVerified}; path=/`
+
+      if (!user.emailVerified) {
+        router.push('/verify')
+        return
+      }
+
+      // Check if user has a username set in Firestore
+      const userDoc = await getDoc(doc(db, 'users', email))
+      const hasUsername = userDoc.exists() && !!userDoc.data()?.username
+
+      if (hasUsername) {
+        router.push('/dashboard')
+      } else {
+        router.push('/onboarding')
+      }
+
     } catch (err: any) {
       setError('Invalid credentials')
     } finally {

@@ -1,3 +1,5 @@
+// only the changed or new lines are explained afterward 👇
+
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -11,25 +13,27 @@ import {
   addDoc
 } from 'firebase/firestore'
 
+import resend from '@/lib/resend'
+
 const hours = Array.from({ length: 18 }, (_, i) => {
   const h = Math.floor(i / 2) + 9
   const m = i % 2 === 0 ? '00' : '30'
   return `${String(h).padStart(2, '0')}:${m}`
 })
 
-const days = [
-  'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
-]
+const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 export default function PublicUserPage() {
   const { username } = useParams() as { username: string }
 
   const [availability, setAvailability] = useState<Record<string, string[]>>({})
   const [ownerEmail, setOwnerEmail] = useState('')
+  const [ownerName, setOwnerName] = useState('')
   const [selectedDay, setSelectedDay] = useState('')
   const [selectedTime, setSelectedTime] = useState('')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [subject, setSubject] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const [bookedSlots, setBookedSlots] = useState<Record<string, string[]>>({})
 
@@ -43,6 +47,7 @@ export default function PublicUserPage() {
       setAvailability(doc.data().availability || {})
       const email = doc.id
       setOwnerEmail(email)
+      setOwnerName(doc.data().username)
 
       const bookingsSnap = await getDocs(collection(db, 'users', email, 'bookings'))
       const accepted = bookingsSnap.docs
@@ -61,14 +66,36 @@ export default function PublicUserPage() {
 
   const handleRequest = async () => {
     if (!name || !email || !selectedDay || !selectedTime || !ownerEmail) return
+
     await addDoc(collection(db, 'users', ownerEmail, 'bookings'), {
       name,
       email,
+      subject,
       day: selectedDay,
       time: selectedTime,
       status: 'pending',
       createdAt: new Date(),
     })
+
+    const formattedTime = `${selectedDay} at ${selectedTime}`
+    const html = `
+      <div style="font-family: Arial, sans-serif; padding: 20px;">
+        <h2>Hello ${ownerName},</h2>
+        <p><strong>${name}</strong> (${email}) just requested a meeting with you.</p>
+        <p><strong>Requested Time:</strong> ${formattedTime}</p>
+        <p><strong>Subject:</strong> ${subject || 'Not specified'}</p>
+        <p>Please visit your dashboard to accept or decline the request.</p>
+        <p>– The Meeteazy Team</p>
+      </div>
+    `
+
+    await resend.emails.send({
+      from: process.env.EMAIL_FROM!,
+      to: ownerEmail,
+      subject: 'New Booking Request on Meeteazy',
+      html,
+    })
+
     setSubmitted(true)
   }
 
@@ -136,6 +163,12 @@ export default function PublicUserPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-2 border rounded"
               />
+              <textarea
+                placeholder="Subject of discussion"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                className="w-full px-4 py-2 border rounded"
+              ></textarea>
               <button
                 onClick={handleRequest}
                 className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"

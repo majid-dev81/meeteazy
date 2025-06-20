@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { createUserWithEmailAndPassword } from 'firebase/auth'
+import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth'
 import { doc, setDoc } from 'firebase/firestore'
 import { useRouter } from 'next/navigation'
 import { auth, db } from '@/lib/firebase'
@@ -20,10 +20,17 @@ export default function SignupPage() {
 
     try {
       const userCred = await createUserWithEmailAndPassword(auth, email, password)
+
+      // Send email verification
+      await sendEmailVerification(userCred.user)
+
+      // Save blank user doc (we’ll update it after username is set)
       await setDoc(doc(db, 'users', userCred.user.email!), {
         username: ''
       })
-      router.push('/onboarding')
+
+      // Redirect to verify screen
+      router.push('/verify')
     } catch (err: any) {
       setError(err.message || 'Signup failed')
     } finally {

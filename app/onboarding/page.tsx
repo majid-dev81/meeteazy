@@ -4,7 +4,15 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { auth, db } from '@/lib/firebase'
 import { onAuthStateChanged } from 'firebase/auth'
-import { doc, updateDoc, getDoc } from 'firebase/firestore'
+import {
+  doc,
+  updateDoc,
+  getDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+} from 'firebase/firestore'
 
 export default function OnboardingPage() {
   const router = useRouter()
@@ -31,18 +39,35 @@ export default function OnboardingPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!username.trim()) {
+    const trimmed = username.trim().toLowerCase()
+
+    if (!trimmed) {
       setError('Username is required')
       return
     }
+
     setLoading(true)
+    setError('')
+
     try {
+      // Check if username is already taken
+      const q = query(collection(db, 'users'), where('username', '==', trimmed))
+      const snapshot = await getDocs(q)
+
+      if (!snapshot.empty) {
+        setError('This username is already taken')
+        setLoading(false)
+        return
+      }
+
+      // Save username to user's document
       await updateDoc(doc(db, 'users', email), {
-        username: username.trim(),
+        username: trimmed,
       })
+
       router.push('/dashboard')
-    } catch (err: any) {
-      setError('Failed to save username')
+    } catch (err) {
+      setError('Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }
