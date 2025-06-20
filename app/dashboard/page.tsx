@@ -102,12 +102,14 @@ export default function DashboardPage() {
         </div>
       `
 
-      await resend.emails.send({
-        from: process.env.EMAIL_FROM!,
-        to: data.email,
-        subject: `Your booking was ${status}`,
-        html,
-      })
+     const result = await resend.emails.send({
+  from: process.env.EMAIL_FROM!,
+  to: data.email,
+  subject: `Your booking was ${status}`,
+  html,
+})
+
+console.log('📬 Email send result:', result)
     } catch (e) {
       console.error('Failed to update booking status or send email', e)
     }
