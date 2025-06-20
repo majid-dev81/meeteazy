@@ -7,7 +7,6 @@ import {
   doc, getDoc, setDoc, collection, getDocs, updateDoc,
 } from 'firebase/firestore'
 import { useRouter } from 'next/navigation'
-import resend from '@/lib/resend'
 
 const hours = Array.from({ length: 18 }, (_, i) => {
   const h = Math.floor(i / 2) + 9
@@ -75,42 +74,14 @@ export default function DashboardPage() {
   }
 
   const handleStatusUpdate = async (id: string, status: 'accepted' | 'declined') => {
-    console.log('📩 handleStatusUpdate called for:', id, status)
     try {
       const ref = doc(db, 'users', email, 'bookings', id)
       await updateDoc(ref, { status })
-      console.log('✅ Firestore status updated')
-
-      setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)))
-
-      const docSnap = await getDoc(ref)
-      const data = docSnap.data()
-      if (!data) {
-        console.warn('⚠️ No booking data found for ID:', id)
-        return
-      }
-
-      console.log('📬 Preparing to send email to:', data.email)
-
-      const html = `
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h2>Hello ${data.name},</h2>
-          <p>Your booking request for <strong>${data.day} at ${data.time}</strong> has been <strong>${status}</strong>.</p>
-          ${data.subject ? `<p><strong>Subject:</strong> ${data.subject}</p>` : ''}
-          <p>Thanks for using Meeteazy!</p>
-        </div>
-      `
-
-      const result = await resend.emails.send({
-        from: process.env.EMAIL_FROM!,
-        to: data.email,
-        subject: `Your booking was ${status}`,
-        html,
-      })
-
-      console.log('📬 Email send result:', result)
+      setRequests((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, status } : r))
+      )
     } catch (e) {
-      console.error('❌ Failed to update booking status or send email:', e)
+      console.error('Failed to update booking status', e)
     }
   }
 
@@ -218,29 +189,19 @@ export default function DashboardPage() {
             <p className="font-semibold">
               {req.name} ({req.email})
             </p>
-            <p>
-              {req.day} at {req.time}
-            </p>
+            <p>{req.day} at {req.time}</p>
             {req.subject && <p>Subject: {req.subject}</p>}
-            <p>
-              Status: <span className="font-medium capitalize">{req.status}</span>
-            </p>
+            <p>Status: <span className="font-medium capitalize">{req.status}</span></p>
             {req.status === 'pending' && (
               <div className="mt-2 space-x-2">
                 <button
-                  onClick={() => {
-                    console.log('✅ Accept clicked for', req.id)
-                    handleStatusUpdate(req.id, 'accepted')
-                  }}
+                  onClick={() => handleStatusUpdate(req.id, 'accepted')}
                   className="bg-blue-600 text-white px-3 py-1 rounded"
                 >
                   Accept
                 </button>
                 <button
-                  onClick={() => {
-                    console.log('❌ Decline clicked for', req.id)
-                    handleStatusUpdate(req.id, 'declined')
-                  }}
+                  onClick={() => handleStatusUpdate(req.id, 'declined')}
                   className="bg-gray-400 text-white px-3 py-1 rounded"
                 >
                   Decline
