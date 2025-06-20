@@ -119,7 +119,7 @@ export default function DashboardPage() {
   }
 
   const filteredRequests = filter === 'all' ? requests : requests.filter(r => r.status === filter)
-  const publicLink = `http://localhost:3000/u/${username}`
+ const publicLink = `${typeof window !== 'undefined' ? window.location.origin : ''}/u/${username}`
 
   const handleCopy = () => {
     navigator.clipboard.writeText(publicLink)
