@@ -1,15 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { useParams } from 'next/navigation'
 import { db } from '@/lib/firebase'
 import {
   collection,
   getDocs,
   query,
   where,
-  addDoc,
+  addDoc
 } from 'firebase/firestore'
-import { notFound } from 'next/navigation'
 
 const hours = Array.from({ length: 18 }, (_, i) => {
   const h = Math.floor(i / 2) + 9
@@ -18,16 +18,12 @@ const hours = Array.from({ length: 18 }, (_, i) => {
 })
 
 const days = [
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-  'Sunday',
+  'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
 ]
 
-export default function PublicUserPage({ params }: { params: { username: string } }) {
+export default function PublicUserPage() {
+  const { username } = useParams() as { username: string }
+
   const [availability, setAvailability] = useState<Record<string, string[]>>({})
   const [ownerEmail, setOwnerEmail] = useState('')
   const [selectedDay, setSelectedDay] = useState('')
@@ -37,15 +33,12 @@ export default function PublicUserPage({ params }: { params: { username: string 
   const [submitted, setSubmitted] = useState(false)
   const [bookedSlots, setBookedSlots] = useState<Record<string, string[]>>({})
 
-  const username = params.username
-
   useEffect(() => {
     const loadUser = async () => {
       const q = query(collection(db, 'users'), where('username', '==', username))
       const snapshot = await getDocs(q)
-      if (snapshot.empty) {
-        notFound()
-      }
+      if (snapshot.empty) return
+
       const doc = snapshot.docs[0]
       setAvailability(doc.data().availability || {})
       const email = doc.id
