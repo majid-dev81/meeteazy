@@ -81,9 +81,12 @@ export default function DashboardPage() {
   }
 
   const handleStatusUpdate = async (id: string, status: 'accepted' | 'declined') => {
+    console.log('📩 handleStatusUpdate called for:', id, status)
+
     try {
       const ref = doc(db, 'users', email, 'bookings', id)
       await updateDoc(ref, { status })
+      console.log('✅ Firestore status updated')
 
       setRequests((prev) =>
         prev.map((r) => (r.id === id ? { ...r, status } : r))
@@ -91,7 +94,12 @@ export default function DashboardPage() {
 
       const docSnap = await getDoc(ref)
       const data = docSnap.data()
-      if (!data) return
+      if (!data) {
+        console.warn('⚠️ No booking data found for ID:', id)
+        return
+      }
+
+      console.log('📬 Preparing to send email to:', data.email)
 
       const html = `
         <div style="font-family: Arial, sans-serif; padding: 20px;">
@@ -102,16 +110,16 @@ export default function DashboardPage() {
         </div>
       `
 
-     const result = await resend.emails.send({
-  from: process.env.EMAIL_FROM!,
-  to: data.email,
-  subject: `Your booking was ${status}`,
-  html,
-})
+      const result = await resend.emails.send({
+        from: process.env.EMAIL_FROM!,
+        to: data.email,
+        subject: `Your booking was ${status}`,
+        html,
+      })
 
-console.log('📬 Email send result:', result)
+      console.log('📬 Email send result:', result)
     } catch (e) {
-      console.error('Failed to update booking status or send email', e)
+      console.error('❌ Failed to update booking status or send email:', e)
     }
   }
 
@@ -121,7 +129,7 @@ console.log('📬 Email send result:', result)
   }
 
   const filteredRequests = filter === 'all' ? requests : requests.filter(r => r.status === filter)
- const publicLink = `${typeof window !== 'undefined' ? window.location.origin : ''}/u/${username}`
+  const publicLink = `${typeof window !== 'undefined' ? window.location.origin : ''}/u/${username}`
 
   const handleCopy = () => {
     navigator.clipboard.writeText(publicLink)
