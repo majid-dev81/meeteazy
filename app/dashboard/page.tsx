@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { auth, db } from '@/lib/firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import {
-  doc, getDoc, setDoc, collection, getDocs, updateDoc
+  doc, getDoc, setDoc, collection, getDocs, updateDoc,
 } from 'firebase/firestore'
 import { useRouter } from 'next/navigation'
 import resend from '@/lib/resend'
@@ -95,16 +95,14 @@ export default function DashboardPage() {
         </div>
       `
 
-      const result = await resend.emails.send({
+      await resend.emails.send({
         from: process.env.EMAIL_FROM!,
         to: data.email,
         subject: `Your booking was ${status}`,
         html,
       })
-
-      console.log('📬 Email send result:', result)
     } catch (e) {
-      console.error('❌ Failed to update booking status or send email:', e)
+      console.error('Failed to update booking status or send email', e)
     }
   }
 
