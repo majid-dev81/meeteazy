@@ -21,6 +21,7 @@ export default function DashboardPage() {
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [availability, setAvailability] = useState<Record<string, string[]>>({})
+  const [bookedSlots, setBookedSlots] = useState<Record<string, string[]>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -42,6 +43,16 @@ export default function DashboardPage() {
         const bookingSnap = await getDocs(collection(db, 'users', user.email, 'bookings'))
         const all = bookingSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
         setRequests(all)
+
+        const accepted: Record<string, string[]> = {}
+        all.forEach((item: any) => {
+          if (item.status === 'accepted') {
+            if (!accepted[item.day]) accepted[item.day] = []
+            accepted[item.day].push(item.time)
+          }
+        })
+        setBookedSlots(accepted)
+
         setLoading(false)
       }
     })
@@ -75,7 +86,7 @@ export default function DashboardPage() {
   }
 
   const handleStatusUpdate = async (id: string, status: 'accepted' | 'declined') => {
-    console.log("📡 handleStatusUpdate called");
+    console.log("📡 handleStatusUpdate called")
 
     try {
       const ref = doc(db, 'users', email, 'bookings', id)
@@ -161,13 +172,20 @@ export default function DashboardPage() {
             <h3 className="font-semibold mb-2">{day}</h3>
             <div className="flex flex-wrap gap-1">
               {hours.map((time) => {
-                const active = availability[day]?.includes(time)
+                const isAvailable = availability[day]?.includes(time)
+                const isBooked = bookedSlots[day]?.includes(time)
+
                 return (
                   <button
                     key={time}
                     onClick={() => toggleSlot(day, time)}
+                    disabled={isBooked}
                     className={`px-2 py-1 text-sm rounded border ${
-                      active ? 'bg-blue-600 text-white' : 'bg-gray-100'
+                      isBooked
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : isAvailable
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100'
                     }`}
                   >
                     {time}
