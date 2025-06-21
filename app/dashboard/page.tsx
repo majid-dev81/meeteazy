@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { auth, db } from '@/lib/firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import {
-  doc, getDoc, setDoc, collection, getDocs, updateDoc,
+  doc, getDoc, setDoc, collection, getDocs, updateDoc
 } from 'firebase/firestore'
 import { useRouter } from 'next/navigation'
 import resend from '@/lib/resend'
