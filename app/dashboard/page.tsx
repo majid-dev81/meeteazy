@@ -7,6 +7,7 @@ import {
   doc, getDoc, setDoc, collection, getDocs, updateDoc,
 } from 'firebase/firestore'
 import { useRouter } from 'next/navigation'
+import resend from '@/lib/resend'
 
 const hours = Array.from({ length: 18 }, (_, i) => {
   const h = Math.floor(i / 2) + 9
@@ -80,8 +81,30 @@ export default function DashboardPage() {
       setRequests((prev) =>
         prev.map((r) => (r.id === id ? { ...r, status } : r))
       )
+
+      const docSnap = await getDoc(ref)
+      const data = docSnap.data()
+      if (!data) return
+
+      const html = `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2>Hello ${data.name},</h2>
+          <p>Your booking request for <strong>${data.day} at ${data.time}</strong> has been <strong>${status}</strong>.</p>
+          ${data.subject ? `<p><strong>Subject:</strong> ${data.subject}</p>` : ''}
+          <p>Thanks for using Meeteazy!</p>
+        </div>
+      `
+
+      const result = await resend.emails.send({
+        from: process.env.EMAIL_FROM!,
+        to: data.email,
+        subject: `Your booking was ${status}`,
+        html,
+      })
+
+      console.log('📬 Email send result:', result)
     } catch (e) {
-      console.error('Failed to update booking status', e)
+      console.error('❌ Failed to update booking status or send email:', e)
     }
   }
 
