@@ -75,6 +75,8 @@ export default function DashboardPage() {
   }
 
   const handleStatusUpdate = async (id: string, status: 'accepted' | 'declined') => {
+    console.log("📡 handleStatusUpdate called");
+
     try {
       const ref = doc(db, 'users', email, 'bookings', id)
       await updateDoc(ref, { status })
