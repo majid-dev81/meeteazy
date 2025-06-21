@@ -1,34 +1,54 @@
 'use client'
 
-import Link from 'next/link'
 import Image from 'next/image'
+import Link from 'next/link'
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen flex items-center justify-center px-6 bg-gradient-to-br from-blue-50 to-white">
-      <div className="max-w-xl w-full text-center space-y-6">
+    <main className="min-h-screen bg-gradient-to-b from-white to-gray-100 flex flex-col items-center justify-center px-4 text-center">
+      <div className="max-w-3xl w-full space-y-10">
+        {/* Logo */}
         <div className="flex justify-center">
-          <Image src="/logo.png" alt="Meeteazy Logo" width={80} height={80} className="mx-auto" />
+          <div className="relative w-28 h-28 sm:w-32 sm:h-32">
+            <Image
+              src="/logo.png"
+              alt="Meeteazy logo"
+              fill
+              className="object-contain rounded-full shadow-lg border border-gray-200"
+              priority
+            />
+          </div>
         </div>
-        <h1 className="text-4xl font-bold text-gray-800">
-          Welcome to <span className="text-blue-600">Meeteazy</span>
+
+        {/* Title */}
+        <h1 className="text-4xl md:text-5xl font-extrabold text-gray-800 leading-tight">
+          Smart, Simple & Effortless Scheduling
         </h1>
-        <p className="text-gray-600 text-lg">
-          Smart, simple, and fast scheduling. Set your availability, share your link, and let others book time with you.
+
+        {/* Subheading */}
+        <p className="text-lg md:text-xl text-gray-600 max-w-2xl mx-auto">
+          Share your calendar availability, receive meeting requests, and stay organized — all with Meeteazy.
         </p>
 
-        <div className="flex justify-center gap-4">
+        {/* Buttons */}
+        <div className="flex flex-wrap justify-center gap-4">
           <Link href="/signup">
-            <button className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Sign Up</button>
+            <span className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full font-semibold shadow transition">
+              Get Started
+            </span>
           </Link>
+
           <Link href="/signin">
-            <button className="px-6 py-2 border border-blue-600 text-blue-600 rounded hover:bg-blue-50">Sign In</button>
+            <span className="text-blue-600 font-semibold px-6 py-3 rounded-full border border-blue-600 hover:bg-blue-50 transition">
+              Sign In
+            </span>
           </Link>
         </div>
 
-        <div className="pt-4">
-          <p className="text-sm text-gray-400">© 2025 Meeteazy. All rights reserved.</p>
-        </div>
+        {/* Footer */}
+        <footer className="pt-10 text-sm text-gray-400">
+          &copy; {new Date().getFullYear()} Meeteazy. All rights reserved.
+        </footer>
       </div>
     </main>
   )

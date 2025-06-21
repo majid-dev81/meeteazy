@@ -46,11 +46,15 @@ export default function OnboardingPage() {
       return
     }
 
+    if (!/^[a-z0-9_]{3,}$/.test(trimmed)) {
+      setError('Username must be at least 3 characters, one word, and only use letters, numbers, or underscores.')
+      return
+    }
+
     setLoading(true)
     setError('')
 
     try {
-      // Check if username is already taken
       const q = query(collection(db, 'users'), where('username', '==', trimmed))
       const snapshot = await getDocs(q)
 
@@ -60,7 +64,6 @@ export default function OnboardingPage() {
         return
       }
 
-      // Save username to user's document
       await updateDoc(doc(db, 'users', email), {
         username: trimmed,
       })
@@ -77,6 +80,13 @@ export default function OnboardingPage() {
     <div className="min-h-screen flex items-center justify-center bg-white px-4">
       <form onSubmit={handleSubmit} className="max-w-md w-full space-y-4 p-6 border rounded shadow">
         <h1 className="text-2xl font-bold text-center">Choose a Username</h1>
+
+        <ul className="text-sm text-gray-600 list-disc list-inside">
+          <li>Use only letters, numbers, or underscores</li>
+          <li>No spaces or special characters</li>
+          <li>Minimum 3 characters</li>
+        </ul>
+
         <input
           type="text"
           placeholder="e.g. majid123"
@@ -84,7 +94,9 @@ export default function OnboardingPage() {
           onChange={(e) => setUsername(e.target.value)}
           className="w-full px-4 py-2 border rounded"
         />
+
         {error && <p className="text-red-500 text-sm">{error}</p>}
+
         <button
           type="submit"
           disabled={loading}

@@ -7,7 +7,6 @@ import {
   doc, getDoc, setDoc, collection, getDocs, updateDoc,
 } from 'firebase/firestore'
 import { useRouter } from 'next/navigation'
-import resend from '@/lib/resend'
 
 const hours = Array.from({ length: 18 }, (_, i) => {
   const h = Math.floor(i / 2) + 9
@@ -40,9 +39,26 @@ export default function DashboardPage() {
         setUsername(data?.username || '')
         setAvailability(data?.availability || {})
 
-        const bookingSnap = await getDocs(collection(db, 'users', user.email, 'bookings'))
-        const all = bookingSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-        setRequests(all)
+       const bookingSnap = await getDocs(collection(db, 'users', user.email, 'bookings'))
+const all = bookingSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+
+// ✅ Sort bookings by weekday and then time
+const weekdayOrder = {
+  Monday: 1, Tuesday: 2, Wednesday: 3,
+  Thursday: 4, Friday: 5, Saturday: 6, Sunday: 7
+}
+
+all.sort((a: any, b: any) => {
+  const dayA = weekdayOrder[a.day] || 99
+  const dayB = weekdayOrder[b.day] || 99
+  if (dayA !== dayB) return dayA - dayB
+
+  const [hA, mA] = a.time.split(':').map(Number)
+  const [hB, mB] = b.time.split(':').map(Number)
+  return hA * 60 + mA - (hB * 60 + mB)
+})
+
+setRequests(all)
 
         const accepted: Record<string, string[]> = {}
         all.forEach((item: any) => {
@@ -86,36 +102,40 @@ export default function DashboardPage() {
   }
 
   const handleStatusUpdate = async (id: string, status: 'accepted' | 'declined') => {
-    console.log("📡 handleStatusUpdate called")
+    console.log('📡 handleStatusUpdate() triggered for:', id, status)
 
     try {
       const ref = doc(db, 'users', email, 'bookings', id)
       await updateDoc(ref, { status })
+      console.log('✅ Firestore status updated')
+
       setRequests((prev) =>
         prev.map((r) => (r.id === id ? { ...r, status } : r))
       )
 
       const docSnap = await getDoc(ref)
       const data = docSnap.data()
-      if (!data) return
+      if (!data) {
+        console.warn('⚠️ Booking data not found for ID:', id)
+        return
+      }
 
-      const html = `
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h2>Hello ${data.name},</h2>
-          <p>Your booking request for <strong>${data.day} at ${data.time}</strong> has been <strong>${status}</strong>.</p>
-          ${data.subject ? `<p><strong>Subject:</strong> ${data.subject}</p>` : ''}
-          <p>Thanks for using Meeteazy!</p>
-        </div>
-      `
-
-      const result = await resend.emails.send({
-        from: process.env.EMAIL_FROM!,
-        to: data.email,
-        subject: `Your booking was ${status}`,
-        html,
+      console.log('📬 Sending booking status email...')
+      const res = await fetch('/api/send-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: data.name,
+          email: data.email,
+          day: data.day,
+          time: data.time,
+          subject: data.subject,
+          status
+        })
       })
 
-      console.log('📬 Email send result:', result)
+      const result = await res.json()
+      console.log('📬 Email POST result:', result)
     } catch (e) {
       console.error('❌ Failed to update booking status or send email:', e)
     }
