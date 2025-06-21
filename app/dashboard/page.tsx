@@ -16,6 +16,16 @@ const hours = Array.from({ length: 18 }, (_, i) => {
 
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
+const weekdayOrder: Record<string, number> = {
+  Monday: 1,
+  Tuesday: 2,
+  Wednesday: 3,
+  Thursday: 4,
+  Friday: 5,
+  Saturday: 6,
+  Sunday: 7
+}
+
 export default function DashboardPage() {
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
@@ -39,26 +49,20 @@ export default function DashboardPage() {
         setUsername(data?.username || '')
         setAvailability(data?.availability || {})
 
-       const bookingSnap = await getDocs(collection(db, 'users', user.email, 'bookings'))
-const all = bookingSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+        const bookingSnap = await getDocs(collection(db, 'users', user.email, 'bookings'))
+        const all = bookingSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
 
-// ✅ Sort bookings by weekday and then time
-const weekdayOrder = {
-  Monday: 1, Tuesday: 2, Wednesday: 3,
-  Thursday: 4, Friday: 5, Saturday: 6, Sunday: 7
-}
+        all.sort((a: any, b: any) => {
+          const dayA = weekdayOrder[a.day] || 99
+          const dayB = weekdayOrder[b.day] || 99
+          if (dayA !== dayB) return dayA - dayB
 
-all.sort((a: any, b: any) => {
-  const dayA = weekdayOrder[a.day] || 99
-  const dayB = weekdayOrder[b.day] || 99
-  if (dayA !== dayB) return dayA - dayB
+          const [hA, mA] = a.time.split(':').map(Number)
+          const [hB, mB] = b.time.split(':').map(Number)
+          return hA * 60 + mA - (hB * 60 + mB)
+        })
 
-  const [hA, mA] = a.time.split(':').map(Number)
-  const [hB, mB] = b.time.split(':').map(Number)
-  return hA * 60 + mA - (hB * 60 + mB)
-})
-
-setRequests(all)
+        setRequests(all)
 
         const accepted: Record<string, string[]> = {}
         all.forEach((item: any) => {
@@ -102,12 +106,9 @@ setRequests(all)
   }
 
   const handleStatusUpdate = async (id: string, status: 'accepted' | 'declined') => {
-    console.log('📡 handleStatusUpdate() triggered for:', id, status)
-
     try {
       const ref = doc(db, 'users', email, 'bookings', id)
       await updateDoc(ref, { status })
-      console.log('✅ Firestore status updated')
 
       setRequests((prev) =>
         prev.map((r) => (r.id === id ? { ...r, status } : r))
@@ -115,13 +116,9 @@ setRequests(all)
 
       const docSnap = await getDoc(ref)
       const data = docSnap.data()
-      if (!data) {
-        console.warn('⚠️ Booking data not found for ID:', id)
-        return
-      }
+      if (!data) return
 
-      console.log('📬 Sending booking status email...')
-      const res = await fetch('/api/send-status', {
+      await fetch('/api/send-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -133,9 +130,6 @@ setRequests(all)
           status
         })
       })
-
-      const result = await res.json()
-      console.log('📬 Email POST result:', result)
     } catch (e) {
       console.error('❌ Failed to update booking status or send email:', e)
     }
