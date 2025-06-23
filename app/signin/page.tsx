@@ -22,23 +22,21 @@ export default function SigninPage() {
       const userCredential = await signInWithEmailAndPassword(auth, email, password)
       const user = userCredential.user
 
-      // Set cookie for verification status (used by middleware)
-      document.cookie = `isVerified=${user.emailVerified}; path=/`
+      await fetch('/api/set-cookie', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verified: user.emailVerified }),
+      })
 
       if (!user.emailVerified) {
         router.push('/verify')
         return
       }
 
-      // Check if user has a username set in Firestore
       const userDoc = await getDoc(doc(db, 'users', email))
       const hasUsername = userDoc.exists() && !!userDoc.data()?.username
 
-      if (hasUsername) {
-        router.push('/dashboard')
-      } else {
-        router.push('/onboarding')
-      }
+    router.push(hasUsername ? '/dashboard' : '/onboarding')
 
     } catch (err: any) {
       setError('Invalid credentials')
