@@ -1,58 +1,86 @@
-export const runtime = 'nodejs'
+// app/api/send-cancellation/route.ts
 
-import { NextRequest, NextResponse } from 'next/server'
-import resend from '@/lib/resend'
-import { db } from '@/lib/firebase'
-import { doc, updateDoc, getDoc } from 'firebase/firestore'
+import { Resend } from 'resend';
+import { NextResponse } from 'next/server';
+import { format, parse } from 'date-fns';
 
-export async function POST(req: NextRequest) {
-  try {
-    const { userEmail, bookingId } = await req.json()
+const resend = new Resend(process.env.RESEND_API_KEY);
+const fromEmail = process.env.EMAIL_FROM;
 
-    if (!userEmail || !bookingId) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+export async function POST(req: Request) {
+    if (!fromEmail) {
+        console.error("EMAIL_FROM environment variable is not set.");
+        return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
     }
 
-    const ref = doc(db, 'users', userEmail, 'bookings', bookingId)
+    try {
+        const body = await req.json();
+        const {
+            ownerName,
+            requesterEmail,
+            requesterName,
+            date, // 'yyyy-MM-dd'
+            time, // 'HH:mm'
+            subject,
+            cancellationNote,
+            rebookUrl
+        } = body;
 
-    // Update status in Firestore
-    await updateDoc(ref, { status: 'cancelled' })
+        // Basic validation
+        if (!ownerName || !requesterEmail || !requesterName || !date || !time || !subject || !rebookUrl) {
+            return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+        }
+        
+        // Format date and time for the email
+        const meetingDate = parse(date, 'yyyy-MM-dd', new Date());
+        const meetingTime = parse(time, 'HH:mm', new Date());
 
-    const snap = await getDoc(ref)
-    const data = snap.data()
+        const formattedDate = format(meetingDate, 'EEEE, MMMM d, yyyy');
+        const formattedTime = format(meetingTime, 'h:mm a');
 
-    if (!data) {
-      return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
+        const emailHtml = `
+            <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <h2 style="color: #d32f2f;">Meeting Canceled</h2>
+                <p>Hi ${requesterName},</p>
+                <p>This is an automated notification to let you know that your meeting with <strong>${ownerName}</strong> has been canceled.</p>
+                <div style="background-color: #f9f9f9; border-left: 4px solid #d32f2f; padding: 15px; margin: 20px 0;">
+                    <h3 style="margin-top: 0;">Canceled Meeting Details:</h3>
+                    <p><strong>Subject:</strong> ${subject}</p>
+                    <p><strong>Date:</strong> ${formattedDate}</p>
+                    <p><strong>Time:</strong> ${formattedTime}</p>
+                </div>
+                ${cancellationNote ? `
+                <div style="background-color: #fff8e1; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+                    <h3 style="margin-top: 0;">A note from ${ownerName}:</h3>
+                    <p style="white-space: pre-wrap;">${cancellationNote}</p>
+                </div>
+                ` : ''}
+                <p>We apologize for any inconvenience this may cause. If you'd like to schedule another time, you can do so by visiting their booking page:</p>
+                <p style="text-align: center; margin: 25px 0;">
+                    <a href="${rebookUrl}" style="background-color: #1a73e8; color: white; padding: 12px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Rebook a new time</a>
+                </p>
+                <p>Best,</p>
+                <p>The Meeteazy Team</p>
+            </div>
+        `;
+
+        const data = await resend.emails.send({
+            from: `Meeteazy <${fromEmail}>`,
+            to: [requesterEmail],
+            subject: `Canceled: Your meeting with ${ownerName} for "${subject}"`,
+            html: emailHtml,
+        });
+
+        if (data.error) {
+           console.error("Resend API error:", data.error);
+           throw new Error(data.error.message);
+        }
+
+        return NextResponse.json({ success: true, message: 'Cancellation email sent.' });
+
+    } catch (error) {
+        console.error("Failed to send cancellation email:", error);
+        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+        return NextResponse.json({ error: 'Failed to send email', details: errorMessage }, { status: 500 });
     }
-
-    const { name, email, day, time, subject } = data
-
-    const footer = `
-      <p style="margin-top: 24px; font-size: 13px; color: #555;">
-        — The Meeteazy Team · <a href="https://meeteazy.com" style="color:#3b82f6; text-decoration: none;">meeteazy.com</a>
-      </p>
-    `
-
-    const html = `
-      <div style="font-family: Arial, sans-serif; padding: 20px;">
-        <h2>Hello ${name},</h2>
-        <p>We regret to inform you that your booking for <strong>${day} at ${time}</strong> has been <strong>cancelled</strong>.</p>
-        ${subject ? `<p><strong>Subject:</strong> ${subject}</p>` : ''}
-        <p>We apologize for any inconvenience.</p>
-        ${footer}
-      </div>
-    `
-
-    await resend.emails.send({
-      from: process.env.EMAIL_FROM!,
-      to: email,
-      subject: 'Your booking has been cancelled',
-      html,
-    })
-
-    return NextResponse.json({ success: true })
-  } catch (e) {
-    console.error('❌ Error in cancellation API:', e)
-    return NextResponse.json({ error: 'Failed to cancel booking' }, { status: 500 })
-  }
 }

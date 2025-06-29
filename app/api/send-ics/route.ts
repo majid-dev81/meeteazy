@@ -1,3 +1,5 @@
+// app/api/send-ics/route.ts
+
 export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -10,8 +12,27 @@ function toDateArray(date: Date): [number, number, number, number, number] {
     date.getMonth() + 1,
     date.getDate(),
     date.getHours(),
-    date.getMinutes()
+    date.getMinutes(),
   ]
+}
+
+function getUpcomingDateForWeekday(day: string): Date {
+  const daysMap: Record<string, number> = {
+    Sunday: 0,
+    Monday: 1,
+    Tuesday: 2,
+    Wednesday: 3,
+    Thursday: 4,
+    Friday: 5,
+    Saturday: 6,
+  }
+  const today = new Date()
+  const current = today.getDay()
+  const target = daysMap[day] ?? 1
+  const delta = (target - current + 7) % 7 || 7
+  const result = new Date()
+  result.setDate(today.getDate() + delta)
+  return result
 }
 
 export async function POST(req: NextRequest) {
@@ -23,10 +44,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    // ✅ CORRECTED DATE PARSING
-    const dateTimeString = `${day}T${time}:00`
-    const startDateTime = new Date(dateTimeString)
-    const endDateTime = new Date(startDateTime.getTime() + 30 * 60 * 1000) // 30 mins
+    const baseDate = getUpcomingDateForWeekday(day)
+    const [hour, minute] = time.split(':').map(Number)
+    baseDate.setHours(hour)
+    baseDate.setMinutes(minute)
+    baseDate.setSeconds(0)
+    baseDate.setMilliseconds(0)
+
+    const startDateTime = new Date(baseDate)
+    const endDateTime = new Date(startDateTime.getTime() + 30 * 60 * 1000)
 
     const start = toDateArray(startDateTime)
     const end = toDateArray(endDateTime)

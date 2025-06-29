@@ -12,36 +12,58 @@ export default function SigninPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showResend, setShowResend] = useState(false)
+  const [resendMessage, setResendMessage] = useState('')
 
   const handleSignin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
+    setShowResend(false)
+    setResendMessage('')
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password)
       const user = userCredential.user
 
-      await fetch('/api/set-cookie', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ verified: user.emailVerified }),
-      })
+      const userDoc = await getDoc(doc(db, 'users', email))
+      const data = userDoc.data()
 
-      if (!user.emailVerified) {
-        router.push('/verify')
+      if (!userDoc.exists() || !data?.verified) {
+        setError('Your email is not verified yet.')
+        setShowResend(true)
         return
       }
 
-      const userDoc = await getDoc(doc(db, 'users', email))
-      const hasUsername = userDoc.exists() && !!userDoc.data()?.username
+      await fetch('/api/set-cookie', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verified: true }),
+      })
 
-    router.push(hasUsername ? '/dashboard' : '/onboarding')
-
+      const hasUsername = !!data?.username
+      router.push(hasUsername ? '/dashboard' : '/onboarding')
     } catch (err: any) {
+      console.error(err)
       setError('Invalid credentials')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleResend = async () => {
+    setResendMessage('Sending...')
+    try {
+      const response = await fetch('/api/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+
+      const result = await response.json()
+      setResendMessage(result?.success ? '✅ Verification email sent!' : '❌ Failed to resend email')
+    } catch {
+      setResendMessage('❌ Error sending email')
     }
   }
 
@@ -69,6 +91,15 @@ export default function SigninPage() {
         />
 
         {error && <p className="text-sm text-red-500">{error}</p>}
+
+        {showResend && (
+          <div className="text-sm text-blue-600">
+            <button type="button" onClick={handleResend} className="underline font-medium">
+              Resend verification email
+            </button>
+            {resendMessage && <p className="mt-1 text-gray-600">{resendMessage}</p>}
+          </div>
+        )}
 
         <button
           type="submit"

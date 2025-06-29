@@ -1,10 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth'
+import { createUserWithEmailAndPassword } from 'firebase/auth'
 import { doc, setDoc } from 'firebase/firestore'
 import { useRouter } from 'next/navigation'
 import { auth, db } from '@/lib/firebase'
+import { v4 as uuidv4 } from 'uuid'
 
 export default function SignupPage() {
   const router = useRouter()
@@ -21,17 +22,34 @@ export default function SignupPage() {
     try {
       const userCred = await createUserWithEmailAndPassword(auth, email, password)
 
-      // Send email verification
-      await sendEmailVerification(userCred.user)
+      // Generate a unique verification token
+      const verificationToken = uuidv4()
 
-      // Save blank user doc (we’ll update it after username is set)
+      // Save user in Firestore with verificationToken and verified flag
       await setDoc(doc(db, 'users', userCred.user.email!), {
-        username: ''
+        username: '',
+        verified: false,
+        verificationToken,
       })
 
-      // Redirect to verify screen
+      // Send verification email using our custom API
+      const response = await fetch('/api/send-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          token: verificationToken,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to send verification email')
+      }
+
+      // Redirect to custom verify page
       router.push('/verify')
     } catch (err: any) {
+      console.error(err)
       setError(err.message || 'Signup failed')
     } finally {
       setLoading(false)
