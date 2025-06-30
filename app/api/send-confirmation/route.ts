@@ -85,10 +85,6 @@ export async function POST(req: Request) {
           location,
         }),
         text: `You have been invited to a meeting with ${ownerName} on ${date} at ${time}.`,
-        icalEvent: {
-          filename: 'invite.ics',
-          content: icsString,
-        },
         attachments: [
           {
             filename: 'invite.ics',
@@ -113,10 +109,6 @@ export async function POST(req: Request) {
           location,
         }),
         text: `You have been invited to a meeting with ${requesterName} on ${date} at ${time}.`,
-        icalEvent: {
-          filename: 'invite.ics',
-          content: icsString,
-        },
         attachments: [
           {
             filename: 'invite.ics',
