@@ -123,7 +123,7 @@ export async function POST(req: Request) {
     results.forEach((res, i) => {
       const recipient = i === 0 ? requesterEmail : ownerEmail
       if (res.status === 'fulfilled') {
-        console.log(`✅ Email sent to ${recipient} — Resend ID: ${res.value.id}`)
+        console.log(`✅ Email sent to ${recipient}`, res.value)
       } else {
         allSuccessful = false
         console.error(`❌ Failed to send to ${recipient}`, res.reason)
