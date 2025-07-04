@@ -6,7 +6,7 @@ import { format, parse } from 'date-fns';
 
 // Environment variables
 const fromEmail = process.env.EMAIL_FROM;
-const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://meeteazy.com';
 
 // TypeScript interface for the email template props
 interface BookingRequestEmailProps {
