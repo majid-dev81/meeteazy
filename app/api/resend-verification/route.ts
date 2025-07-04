@@ -11,11 +11,15 @@ export const runtime = 'nodejs'
 export async function POST(req: NextRequest) {
   try {
     const { email } = await req.json()
-    if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 })
+    if (!email) {
+      return NextResponse.json({ error: 'Email required' }, { status: 400 })
+    }
 
     const ref = doc(db, 'users', email)
     const snap = await getDoc(ref)
-    if (!snap.exists()) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    if (!snap.exists()) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
 
     const newToken = uuidv4()
 
@@ -23,8 +27,11 @@ export async function POST(req: NextRequest) {
       verificationToken: newToken,
     })
 
-    const verificationUrl = `https://meeteazy.com/verify-email?token=${newToken}`
+    // ✅ Use environment-based URL for prod/dev
+const baseUrl = process.env.BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://meeteazy.com'
+    const verificationUrl = `${baseUrl}/verify-email?token=${newToken}`
 
+    // Corrected: Removed duplicate htmlContent declaration
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; padding: 24px;">
         <h2>Welcome back to Meeteazy 👋</h2>

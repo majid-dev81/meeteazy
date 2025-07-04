@@ -1,11 +1,12 @@
-// app/u/[username]/page.tsx
+// /app/u/[username]/page.tsx
 
 'use client'
 
-import { useEffect, useState, useMemo, FormEvent } from 'react'
+import React, { useEffect, useState, useMemo, FormEvent } from 'react'
 import { useParams } from 'next/navigation'
 import { db } from '@/lib/firebase'
-import { collection, getDocs, query, where, addDoc, onSnapshot, doc } from 'firebase/firestore'
+// ✅ FIX: Import serverTimestamp for accurate creation time
+import { collection, getDocs, query, where, addDoc, onSnapshot, doc, serverTimestamp } from 'firebase/firestore'
 import { addDays, format, parse, isBefore, addMinutes, isValid } from 'date-fns'
 import { clsx } from 'clsx'
 import {
@@ -23,7 +24,6 @@ import {
   Globe,
   Info,
   Target,
-  QrCode,
   Send,
   CheckCircle2,
 } from 'lucide-react'
@@ -35,7 +35,7 @@ interface ProfileInfo {
   name?: string
   role?: string
   company?: string
-  photoUrl?: string // Use photoUrl as requested
+  photoUrl?: string
   bio?: string
   focus?: string
   linkedin?: string
@@ -45,6 +45,7 @@ interface ProfileInfo {
   bannerUrl?: string
   mapEmbedUrl?: string
   showContact?: boolean
+  availability?: Availability 
 }
 
 interface TimeRange {
@@ -72,7 +73,7 @@ interface SelectedSlot {
 
 // --- Constants ---
 const DURATION_OPTIONS = [15, 30, 45, 60]
-const UPCOMING_DAYS_COUNT = 14
+const UPCOMING_DAYS_COUNT = 30
 
 /**
  * Ensures a URL is properly formatted for external linking.
@@ -91,7 +92,6 @@ const ProfileSection = ({ profile, username, isAvailableToday }: { profile: Prof
 
   const hasSocials = profile.linkedin || profile.twitter || profile.website || profile.whatsapp;
   const hasContactInfo = profile.showContact && profile.email;
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&bgcolor=ffffff&color=0f172a&data=https://meeteazy.com/u/${username}`;
 
   const Avatar = ({ name, imageUrl }: { name: string; imageUrl?: string }) => (
     <div className="w-28 h-28 md:w-32 md:h-32 rounded-full bg-gray-200 flex items-center justify-center border-4 border-white shadow-lg mx-auto overflow-hidden">
@@ -181,15 +181,6 @@ const ProfileSection = ({ profile, username, isAvailableToday }: { profile: Prof
             </SectionBlock>
           )}
         </div>
-        
-        <div className="mt-6 pt-6 border-t border-gray-200 text-center">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center justify-center gap-2 mb-3">
-                <QrCode size={14} /> Scan to Connect
-            </h3>
-            <div className="flex justify-center">
-                <img src={qrCodeUrl} alt="QR Code for profile" className="rounded-lg border-4 border-white shadow-md" />
-            </div>
-        </div>
       </div>
 
       {profile.mapEmbedUrl && (
@@ -205,9 +196,11 @@ const ProfileSection = ({ profile, username, isAvailableToday }: { profile: Prof
 
 
 export default function PublicUserPage() {
-  const { username } = useParams() as { username: string }
+  const params = useParams()
+  const username = params.username as string
 
   const [profile, setProfile] = useState<ProfileInfo | null>(null)
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [availability, setAvailability] = useState<Availability>({})
   const [acceptedBookings, setAcceptedBookings] = useState<Booking[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<SelectedSlot | null>(null)
@@ -229,59 +222,81 @@ export default function PublicUserPage() {
   const todayKey = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
 
   useEffect(() => {
-    if (!username) return
+    if (!username) {
+        setIsLoading(false);
+        setError('No username provided.');
+        return;
+    }
+
+    setIsLoading(true);
+
+    const usersRef = collection(db, 'users');
+    const profileQuery = query(usersRef, where('username', '==', username));
+    
+    let unsubscribeUserDoc: () => void;
+    let unsubscribeBookings: () => void;
 
     const fetchUserData = async () => {
-      setIsLoading(true)
-      setError(null)
-      try {
-        const usersRef = collection(db, 'users')
-        const q = query(usersRef, where('username', '==', username))
-        const userSnapshot = await getDocs(q)
-        if (userSnapshot.empty) {
-          setError('This user does not exist.'); setIsLoading(false); return;
+        try {
+            const querySnapshot = await getDocs(profileQuery);
+            if (querySnapshot.empty) {
+                setError('This user does not exist.');
+                setProfile(null);
+                setIsLoading(false);
+                return;
+            }
+            
+            const userDoc = querySnapshot.docs[0];
+            const userId = userDoc.id; // This is the owner's email
+            
+            setProfileId(userId);
+            
+            const userDocRef = doc(db, 'users', userId);
+            unsubscribeUserDoc = onSnapshot(userDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data() as ProfileInfo;
+                    
+                    const profileWithEmail = {
+                        ...data,
+                        email: userId 
+                    };
+                    
+                    setProfile(profileWithEmail); 
+                    setAvailability(data.availability || {});
+                    setError(null);
+                } else {
+                    setError('This user no longer exists.');
+                    setProfile(null);
+                    setAvailability({});
+                }
+            });
+
+            const bookingsRef = collection(db, 'users', userId, 'bookings');
+            const acceptedQuery = query(bookingsRef, where('status', '==', 'accepted'));
+            unsubscribeBookings = onSnapshot(acceptedQuery, (snapshot) => {
+                const newBookings = snapshot.docs.map(doc => doc.data() as Booking);
+                setAcceptedBookings(newBookings);
+            }, (err) => {
+                console.error("Error fetching bookings:", err);
+                setError('Failed to load bookings.');
+            });
+
+        } catch (e) {
+            console.error("Error fetching user data: ", e);
+            setError('Failed to load profile.');
+        } finally {
+            setIsLoading(false);
         }
-        const userDoc = userSnapshot.docs[0]; const userEmail = userDoc.id; const userData = userDoc.data()
-        
-        setProfile({
-          email: userEmail,
-          username: userData.username,
-          name: userData.name,
-          role: userData.role,
-          company: userData.company,
-          photoUrl: userData.photoUrl, // Updated from profileImageUrl
-          bio: userData.bio,
-          focus: userData.focus || userData.eventGoal,
-          linkedin: userData.linkedin,
-          twitter: userData.twitter,
-          website: userData.website,
-          whatsapp: userData.whatsapp,
-          bannerUrl: userData.bannerUrl,
-          mapEmbedUrl: userData.mapEmbedUrl,
-          showContact: userData.showContact,
-        })
+    };
 
-        const availabilityUnsubscribe = onSnapshot(doc(db, 'users', userEmail), (docSnap) => {
-          if (docSnap.data()?.availability) setAvailability(docSnap.data()?.availability)
-        });
+    fetchUserData();
 
-        const bookingsUnsubscribe = onSnapshot(collection(db, 'users', userEmail, 'bookings'), (snapshot) => {
-          const currentAcceptedBookings = snapshot.docs
-              .filter(d => d.data().status === 'accepted')
-              .map(d => d.data() as Booking);
-          setAcceptedBookings(currentAcceptedBookings);
-        });
-        
-        setIsLoading(false)
-        return () => { availabilityUnsubscribe(); bookingsUnsubscribe() }
-      } catch (err) {
-        console.error('Failed to fetch user data:', err)
-        setError('An unexpected error occurred.')
-        setIsLoading(false)
-      }
-    }
-    fetchUserData()
-  }, [username])
+    return () => {
+        if (unsubscribeUserDoc) unsubscribeUserDoc();
+        if (unsubscribeBookings) unsubscribeBookings();
+    };
+  }, [username]);
+
 
   const generateTimeSlots = (startStr: string, endStr: string, interval: number): string[] => {
     const slots: string[] = []; let current = parse(startStr, 'HH:mm', new Date()); const end = parse(endStr, 'HH:mm', new Date());
@@ -321,30 +336,84 @@ export default function PublicUserPage() {
   }
 
   const handleRequestMeeting = async (e: FormEvent) => {
-    e.preventDefault()
-    if (!profile || !selectedSlot || !name || !email) { alert('Please fill out all required fields.'); return }
-    setIsSubmitting(true)
-    try {
-      await addDoc(collection(db, 'users', profile.email, 'bookings'), {
-        name, email, phone, subject, location,
-        date: selectedSlot.date, time: selectedSlot.time, duration: selectedDuration,
-        status: 'pending', createdAt: new Date(),
-      })
-      await fetch('/api/send-booking-request', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: profile.email, from: 'noreply@meeteazy.com', ownerName: profile.name || profile.username,
-          requesterName: name, requesterEmail: email, requesterPhone: phone, requesterLocation: location,
-          subject, date: selectedSlot.date, time: selectedSlot.time, duration: selectedDuration,
-        }),
-      })
-      setShowSuccess(true); setSelectedSlot(null); setName(''); setEmail(''); setPhone(''); setSubject(''); setLocation('');
-    } catch (err) { console.error('Booking request failed:', err); alert('Failed to send your request.') }
-    finally { setIsSubmitting(false) }
-  }
+    e.preventDefault();
+    if (!profile || !profileId || !selectedSlot || !name || !email) {
+      setError('Please fill out all required fields and select a time slot.');
+      return;
+    }
+    setIsSubmitting(true);
+    setError(null);
 
+    try {
+      // 1. Prepare booking data for Firestore
+      const newBookingData = {
+        date: selectedSlot.date,
+        time: selectedSlot.time,
+        duration: selectedDuration,
+        status: 'pending' as const,
+        createdAt: serverTimestamp(),
+        requesterName: name,
+        requesterEmail: email,
+        requesterPhone: phone,
+        location: location,
+        subject: subject || `Meeting request from ${name}`,
+      };
+
+      // 2. Save booking to Firestore
+      const bookingsCollectionRef = collection(db, 'users', profileId, 'bookings');
+      await addDoc(bookingsCollectionRef, newBookingData);
+
+      // 3. Prepare email payload. `profile.email` is guaranteed to be the owner's email.
+      const emailPayload = {
+        ownerEmail: profile.email,
+        ownerName: profile.name || profile.username,
+        requesterName: name,
+        requesterEmail: email,
+        requesterPhone: phone,
+        subject: newBookingData.subject,
+        date: selectedSlot.date,
+        time: selectedSlot.time,
+        duration: selectedDuration,
+        location: location,
+      };
+
+      // 4. ✅ UPDATE: Call the NEW API route for sending the booking request email
+      const emailResponse = await fetch('/api/new-booking-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(emailPayload),
+      });
+
+      if (!emailResponse.ok) {
+        // The booking is saved, so we don't show a hard error to the user.
+        // We log it for debugging.
+        const emailResult = await emailResponse.json();
+        console.error('API Error: Failed to send booking request email:', emailResult.details);
+      } else {
+        console.log('✅ Booking request email sent successfully.');
+      }
+
+      // 5. Reset form and show success message
+      setShowSuccess(true);
+      setSelectedSlot(null);
+      setName('');
+      setEmail('');
+      setPhone('');
+      setSubject('');
+      setLocation('');
+
+    } catch (err) {
+      console.error('Failed to submit booking request:', err);
+      setError('Could not submit your booking request. Please try again later.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  
   if (isLoading) return <div className="flex justify-center items-center h-screen bg-gray-50"><p>Loading availability...</p></div>
   if (error) return <div className="flex justify-center items-center h-screen bg-gray-50 text-red-600"><p>{error}</p></div>
+  if (!profile) return <div className="flex justify-center items-center h-screen bg-gray-50"><p>Profile not found.</p></div>
+
 
   return (
     <div className="bg-gray-50 min-h-screen font-sans">
@@ -359,7 +428,7 @@ export default function PublicUserPage() {
                 <CheckCircle2 size={24} />
                 <div>
                     <p className="font-bold">Your request has been sent!</p>
-                    <p>You’ll get an email once {profile?.name || profile?.username} accepts.</p>
+                    <p>You'll get an email once {profile?.name || profile?.username} accepts.</p>
                 </div>
               </div>
             )}
@@ -428,7 +497,7 @@ export default function PublicUserPage() {
                                 <div className="relative">
                                     <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400 pointer-events-none">{f.icon}</span>
                                     {f.type === 'select' ? (
-                                        <select id="duration" value={selectedDuration} onChange={e => setSelectedDuration(parseInt(e.target.value))} className="pl-10 block w-full border border-gray-300 rounded-lg shadow-sm py-2.5 px-3 focus:outline-none focus:ring-sky-500 focus:border-sky-500 bg-white">
+                                        <select id="duration" value={selectedDuration} onChange={e => setSelectedDuration(parseInt(e.target.value))} className="appearance-none pl-10 block w-full border border-gray-300 rounded-lg shadow-sm py-2.5 pr-10 focus:outline-none focus:ring-sky-500 focus:border-sky-500 bg-white">
                                             {availableDurations.map(d => (<option key={d} value={d}>{d} minutes</option>))}
                                         </select>
                                     ) : f.type === 'textarea' ? (

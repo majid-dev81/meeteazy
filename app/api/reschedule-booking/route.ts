@@ -1,11 +1,12 @@
 // app/api/reschedule-booking/route.ts
+
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import resend from '@/lib/resend';
 import { doc, getDoc, updateDoc, Timestamp } from 'firebase/firestore';
-import { parse, format, isBefore } from 'date-fns';
+import { parse, format, isBefore, addMinutes } from 'date-fns';
+import { createEvent, DateArray, EventAttributes } from 'ics';
 
-// Helper to generate styled HTML for emails, reusing existing styles
 const createEmailHtml = (title: string, content: string) => `
   <!DOCTYPE html>
   <html>
@@ -33,51 +34,69 @@ const createEmailHtml = (title: string, content: string) => `
   </html>
 `;
 
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { ownerEmail, bookingId, newTime, newDate } = body;
 
-    // 1. Validate payload
     if (!ownerEmail || !bookingId || !newTime || !newDate) {
       return NextResponse.json({ error: 'Missing required fields in request body.' }, { status: 400 });
     }
 
-    // 2. Validate that the new time is in the future
     const newDateTime = parse(`${newDate} ${newTime}`, 'yyyy-MM-dd HH:mm', new Date());
     if (isBefore(newDateTime, new Date())) {
       return NextResponse.json({ error: 'Cannot reschedule to a time in the past.' }, { status: 400 });
     }
 
-    // 3. Get booking and owner documents from Firestore
     const bookingRef = doc(db, 'users', ownerEmail, 'bookings', bookingId);
     const ownerRef = doc(db, 'users', ownerEmail);
-
     const [bookingSnap, ownerSnap] = await Promise.all([getDoc(bookingRef), getDoc(ownerRef)]);
 
     if (!bookingSnap.exists()) {
+      console.warn(`Booking not found for ID: ${bookingId}`);
       return NextResponse.json({ error: 'Booking not found.' }, { status: 404 });
     }
     if (!ownerSnap.exists()) {
+      console.warn(`Calendar owner not found for email: ${ownerEmail}`);
       return NextResponse.json({ error: 'Calendar owner not found.' }, { status: 404 });
     }
 
     const booking = bookingSnap.data();
     const owner = ownerSnap.data();
 
-    // Store old details for the email notification
     const oldTimeFormatted = format(parse(booking.time, 'HH:mm', new Date()), 'h:mm a');
     const oldDateFormatted = format(new Date(booking.date), 'EEEE, MMMM d, yyyy');
 
-    // 4. Update the booking in Firestore
     await updateDoc(bookingRef, {
       time: newTime,
       date: newDate,
       rescheduledAt: Timestamp.now(),
     });
 
-    // 5. Send confirmation emails to both parties
+    const durationInMinutes = booking.duration || 30;
+    const startArray: DateArray = [newDateTime.getFullYear(), newDateTime.getMonth() + 1, newDateTime.getDate(), newDateTime.getHours(), newDateTime.getMinutes()];
+
+    // **FIX**: The event object now correctly specifies the time conversion from local to UTC,
+    // includes an explicit duration, and provides a fallback for the location to prevent
+    // issues with calendar clients.
+    const event: EventAttributes = {
+      start: startArray,
+      startInputType: 'local',
+      startOutputType: 'utc',
+      duration: { minutes: durationInMinutes },
+      title: booking.subject || 'Meeting',
+      description: `Meeting with ${owner.name || 'Meeteazy user'}`,
+      location: booking.location || 'TBD',
+      organizer: { name: owner.name || 'Meeteazy', email: ownerEmail },
+      attendees: [{ name: booking.name, email: booking.email, rsvp: true, partstat: 'ACCEPTED', role: 'REQ-PARTICIPANT' }],
+    };
+
+    const { error, value } = createEvent(event);
+    if (error) {
+      console.error("❌ Failed to generate .ics file:", error);
+      return NextResponse.json({ error: 'Failed to generate calendar event.' }, { status: 500 });
+    }
+
     const emailPayload = {
       ownerName: owner.name || 'Meeteazy User',
       requesterName: booking.name,
@@ -85,11 +104,8 @@ export async function POST(req: NextRequest) {
       newTimeFormatted: format(newDateTime, 'h:mm a'),
       newDateFormatted: format(newDateTime, 'EEEE, MMMM d, yyyy'),
       subject: booking.subject,
-      duration: booking.duration,
-      location: booking.location,
     };
 
-    // Email to the person who booked
     const requesterEmailContent = `
       <p class="text">Hi ${emailPayload.requesterName},</p>
       <p class="text">This is a confirmation that your meeting with <span class="strong">${emailPayload.ownerName}</span> has been rescheduled.</p>
@@ -98,40 +114,63 @@ export async function POST(req: NextRequest) {
         <p class="text"><span class="strong">Previous Time:</span> ${oldDateFormatted} at ${oldTimeFormatted}</p>
         <p class="text"><span class="strong">New Time:</span> ${emailPayload.newDateFormatted} at ${emailPayload.newTimeFormatted}</p>
       </div>
-      <p class="text">If this new time does not work for you, please contact ${emailPayload.ownerName} directly.</p>
+      <p class="text">An updated calendar invite is attached.</p>
     `;
-    
-    // Email to the calendar owner
+
     const ownerEmailContent = `
       <p class="text">Hi ${emailPayload.ownerName},</p>
       <p class="text">You have successfully rescheduled your meeting with <span class="strong">${emailPayload.requesterName}</span>.</p>
-       <div class="details">
+      <div class="details">
         <p class="text"><span class="strong">Subject:</span> ${emailPayload.subject}</p>
         <p class="text"><span class="strong">Previous Time:</span> ${oldDateFormatted} at ${oldTimeFormatted}</p>
         <p class="text"><span class="strong">New Time:</span> ${emailPayload.newDateFormatted} at ${emailPayload.newTimeFormatted}</p>
       </div>
+      <p class="text">The updated .ics file is attached.</p>
     `;
 
-    await Promise.all([
+    // **FIX**: Use Promise.allSettled to ensure both emails are attempted. This adds
+    // resiliency and allows for detailed error logging if one or both emails fail to send,
+    // preventing silent failures. The `from` address format is already correct.
+    const emailResults = await Promise.allSettled([
       resend.emails.send({
         from: 'Meeteazy <notifications@meeteazy.com>',
         to: emailPayload.requesterEmail,
         subject: `Rescheduled: Your meeting with ${emailPayload.ownerName}`,
         html: createEmailHtml('Meeting Rescheduled', requesterEmailContent),
+        attachments: [{ filename: 'updated-meeting.ics', content: value as string }]
       }),
       resend.emails.send({
         from: 'Meeteazy <notifications@meeteazy.com>',
         to: ownerEmail,
         subject: `You rescheduled the meeting with ${emailPayload.requesterName}`,
         html: createEmailHtml('You Rescheduled a Meeting', ownerEmailContent),
+        attachments: [{ filename: 'updated-meeting.ics', content: value as string }]
       })
     ]);
+
+    const failedEmails = emailResults.filter(result => result.status === 'rejected');
+
+    if (failedEmails.length > 0) {
+      console.error('❌ Failed to send one or more reschedule emails:');
+      failedEmails.forEach((result) => {
+        if (result.status === 'rejected') {
+          console.error('Failure reason:', result.reason);
+        }
+      });
+      
+      return NextResponse.json({ 
+        success: false,
+        message: 'Booking rescheduled, but failed to send one or more confirmation emails. Please contact the other party directly.',
+      }, { status: 502 });
+    }
 
     return NextResponse.json({ success: true, message: 'Booking rescheduled and confirmations sent.' });
 
   } catch (error) {
-    console.error('Error rescheduling booking:', error);
-    // Avoid leaking internal error details to the client
+    console.error('An unexpected error occurred in the reschedule-booking route:', error);
+    if (error instanceof Error) {
+        console.error(error.message);
+    }
     return NextResponse.json({ error: 'An internal server error occurred.' }, { status: 500 });
   }
 }

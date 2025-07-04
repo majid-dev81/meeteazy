@@ -1,12 +1,14 @@
+// lib/resend.ts
+
 import { Resend } from 'resend'
 
 const key = process.env.RESEND_API_KEY
 
 if (!key) {
-  console.warn('❌ RESEND_API_KEY missing. Emails will not send.')
+  throw new Error('❌ RESEND_API_KEY is missing. Please set it in your environment variables.')
 }
 
-const resend = new Resend(key || 'DISABLED')
+const resend = new Resend(key)
 
 export async function testEmail() {
   console.log('📤 Attempting to send test email...')

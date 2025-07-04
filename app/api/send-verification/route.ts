@@ -13,7 +13,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing email or token' }, { status: 400 })
     }
 
-    const verificationUrl = `http://localhost:3000/verify-email?token=${token}`
+    // ✅ FIX: Prioritize BASE_URL, then NEXT_PUBLIC_APP_URL, with a fallback to the production domain.
+    const baseUrl = process.env.BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://meeteazy.com'
+    const verificationUrl = `${baseUrl}/verify-email?token=${token}`
 
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; padding: 24px;">
