@@ -1,25 +1,30 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import * as ics from 'ics';
 import { v4 as uuidv4 } from 'uuid';
 import { format, parse } from 'date-fns';
 
-// Note: The Resend instance is now created inside the POST handler.
 const fromEmail = process.env.EMAIL_FROM;
-// The appUrl is kept for potential other uses, but the button URL is now hardcoded for production.
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
+interface AdditionalInvitee {
+  id: string;
+  name: string;
+  email: string;
+}
 
 interface BookingConfirmationEmailProps {
   recipientName: string;
-  recipientType: 'owner' | 'requester';
+  recipientType: 'owner' | 'requester' | 'invitee';
   ownerName: string;
   requesterName: string;
+  additionalInvitees?: AdditionalInvitee[];
   date: string;
   time: string;
   duration: number;
   subject: string;
   location: string;
-  appUrl: string; // Kept in interface for prop consistency
+  appUrl: string;
 }
 
 const BookingConfirmationEmail = ({
@@ -27,22 +32,38 @@ const BookingConfirmationEmail = ({
   recipientType,
   ownerName,
   requesterName,
+  additionalInvitees = [],
   date,
   time,
   duration,
   subject,
   location,
-  appUrl, // Prop is received but not used for the button anymore
+  appUrl,
 }: BookingConfirmationEmailProps): string => {
   const isOwner = recipientType === 'owner';
-  const otherParticipant = isOwner ? requesterName : ownerName;
   const meetingDate = parse(date, 'yyyy-MM-dd', new Date());
   const meetingTime = parse(time, 'HH:mm', new Date());
   const formattedDate = format(meetingDate, 'EEEE, MMMM d, yyyy');
   const formattedTime = format(meetingTime, 'h:mm a');
 
-  // ✅ FIX: Conditionally generate the button HTML.
-  // It only appears for the 'owner' and uses the production URL.
+  // Build attendees list for display
+  const allAttendees = [
+    { name: ownerName, role: 'Host' },
+    { name: requesterName, role: 'Organizer' },
+    ...additionalInvitees.map(inv => ({ name: inv.name, role: 'Attendee' }))
+  ];
+
+  const attendeesHtml = allAttendees.length > 2 ? `
+    <div style="margin: 15px 0;">
+      <strong>All Attendees:</strong>
+      <ul style="margin: 8px 0; padding-left: 20px;">
+        ${allAttendees.map(attendee => `
+          <li style="margin: 4px 0;">${attendee.name} (${attendee.role})</li>
+        `).join('')}
+      </ul>
+    </div>
+  ` : `<p><strong>Participants:</strong> ${ownerName} & ${requesterName}</p>`;
+
   const buttonHtml = isOwner
     ? `
       <p style="text-align: center; margin: 25px 0;">
@@ -54,22 +75,26 @@ const BookingConfirmationEmail = ({
         </a>
       </p>
     `
-    : ''; // The requester gets an empty string, so no button is rendered.
+    : '';
+
+  const greetingText = recipientType === 'owner' 
+    ? `Your meeting with <strong>${requesterName}</strong>${additionalInvitees.length > 0 ? ` and ${additionalInvitees.length} other${additionalInvitees.length > 1 ? 's' : ''}` : ''} has been successfully booked and confirmed.`
+    : recipientType === 'requester'
+    ? `Your meeting with <strong>${ownerName}</strong> has been successfully booked and confirmed.`
+    : `You've been invited to a meeting organized by <strong>${requesterName}</strong> with <strong>${ownerName}</strong>.`;
 
   return `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
       <h1 style="font-size: 24px; color: #28a745;">Meeting Confirmed!</h1>
       <p>Hi ${recipientName},</p>
-      <p>
-        Your meeting with <strong>${otherParticipant}</strong> has been successfully booked and confirmed.
-      </p>
+      <p>${greetingText}</p>
       <p>A calendar invitation (.ics file) is attached to this email.</p>
       <div style="background-color: #f9f9f9; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
         <h2 style="font-size: 18px; margin-top: 0; border-bottom: 1px solid #ddd; padding-bottom: 8px;">
           Booking Details
         </h2>
         <p><strong>Subject:</strong> ${subject}</p>
-        <p><strong>Participants:</strong> ${ownerName} & ${requesterName}</p>
+        ${attendeesHtml}
         <p><strong>Date:</strong> ${formattedDate}</p>
         <p><strong>Time:</strong> ${formattedTime}</p>
         <p><strong>Duration:</strong> ${duration} minutes</p>
@@ -83,14 +108,13 @@ const BookingConfirmationEmail = ({
   `;
 };
 
-export async function POST(req: Request) {
-  if (!fromEmail) { // appUrl check is no longer critical for the button link
+export async function POST(req: NextRequest) {
+  if (!fromEmail) {
     console.error('❌ Server configuration error: EMAIL_FROM is not set.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
   }
 
   try {
-    // ✨ Instantiated Resend here to ensure a fresh instance for each request.
     const resend = new Resend(process.env.RESEND_API_KEY);
     
     const body = await req.json();
@@ -100,6 +124,7 @@ export async function POST(req: Request) {
       ownerName,
       requesterEmail,
       requesterName,
+      additionalInvitees = [], // 🎯 NEW: Additional invitees array
       date,
       time,
       duration,
@@ -117,24 +142,39 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Missing required fields: ${missingFields.join(', ')}` }, { status: 400 });
     }
 
+    // 🎯 VALIDATE ADDITIONAL INVITEES
+    const validInvitees = additionalInvitees.filter((inv: AdditionalInvitee) => 
+      inv && inv.name && inv.email && inv.email.includes('@')
+    );
+
     const [year, month, day] = date.split('-').map(Number);
     const [hour, minute] = time.split(':').map(Number);
+
+    // 🎯 BUILD ATTENDEES LIST FOR ICS (including additional invitees)
+    const icsAttendees = [
+      { name: ownerName, email: ownerEmail, rsvp: true, partstat: 'ACCEPTED', role: 'REQ-PARTICIPANT' },
+      { name: requesterName, email: requesterEmail, rsvp: true, partstat: 'NEEDS-ACTION', role: 'REQ-PARTICIPANT' },
+      ...validInvitees.map((inv: AdditionalInvitee) => ({
+        name: inv.name,
+        email: inv.email,
+        rsvp: true,
+        partstat: 'NEEDS-ACTION',
+        role: 'REQ-PARTICIPANT'
+      }))
+    ];
 
     const event: ics.EventAttributes = {
       start: [year, month, day, hour, minute],
       startInputType: 'local',
       duration: { minutes: duration },
       title: subject,
-      description: `Confirmed meeting between ${ownerName} and ${requesterName}. Location: ${location}`,
+      description: `Confirmed meeting between ${ownerName}, ${requesterName}${validInvitees.length > 0 ? `, and ${validInvitees.length} other attendee${validInvitees.length > 1 ? 's' : ''}` : ''}. Location: ${location}`,
       location,
       uid: uuidv4(),
       status: 'CONFIRMED',
       busyStatus: 'BUSY',
       organizer: { name: ownerName, email: ownerEmail },
-      attendees: [
-        { name: ownerName, email: ownerEmail, rsvp: true, partstat: 'ACCEPTED', role: 'REQ-PARTICIPANT' },
-        { name: requesterName, email: requesterEmail, rsvp: true, partstat: 'NEEDS-ACTION', role: 'REQ-PARTICIPANT' },
-      ],
+      attendees: icsAttendees,
     };
 
     const { error: icsError, value: icsContent } = ics.createEvent(event);
@@ -148,11 +188,17 @@ export async function POST(req: Request) {
       content: Buffer.from(icsContent).toString('base64'),
     };
 
+    // 🎯 BUILD RECIPIENT LIST
+    const emailResults = [];
+
     // --- Send to requester ---
     const htmlToRequester = BookingConfirmationEmail({
       recipientName: requesterName,
       recipientType: 'requester',
-      ownerName, requesterName, date, time, duration, subject, location, appUrl,
+      ownerName, 
+      requesterName, 
+      additionalInvitees: validInvitees,
+      date, time, duration, subject, location, appUrl,
     });
 
     const requesterRes = await resend.emails.send({
@@ -166,14 +212,19 @@ export async function POST(req: Request) {
     console.log("📤 Resend response (requester):", requesterRes);
     if (requesterRes.error) {
       console.error('❌ Resend error to requester:', requesterRes.error);
-      throw new Error(requesterRes.error.message);
+      emailResults.push({ recipient: 'requester', error: requesterRes.error.message });
+    } else {
+      emailResults.push({ recipient: 'requester', success: true });
     }
 
     // --- Send to owner ---
     const htmlToOwner = BookingConfirmationEmail({
       recipientName: ownerName,
       recipientType: 'owner',
-      ownerName, requesterName, date, time, duration, subject, location, appUrl,
+      ownerName, 
+      requesterName, 
+      additionalInvitees: validInvitees,
+      date, time, duration, subject, location, appUrl,
     });
 
     const ownerRes = await resend.emails.send({
@@ -187,10 +238,64 @@ export async function POST(req: Request) {
     console.log("📤 Resend response (owner):", ownerRes);
     if (ownerRes.error) {
       console.error('❌ Resend error to owner:', ownerRes.error);
-      throw new Error(ownerRes.error.message);
+      emailResults.push({ recipient: 'owner', error: ownerRes.error.message });
+    } else {
+      emailResults.push({ recipient: 'owner', success: true });
     }
 
-    return NextResponse.json({ success: true, message: 'Confirmation emails sent.' });
+    // 🎯 SEND TO ALL ADDITIONAL INVITEES
+    for (const invitee of validInvitees) {
+      const htmlToInvitee = BookingConfirmationEmail({
+        recipientName: invitee.name,
+        recipientType: 'invitee',
+        ownerName, 
+        requesterName, 
+        additionalInvitees: validInvitees,
+        date, time, duration, subject, location, appUrl,
+      });
+
+      try {
+        const inviteeRes = await resend.emails.send({
+          from: `Meeteazy <${fromEmail}>`,
+          to: [invitee.email],
+          subject: `Meeting Invitation: ${subject}`,
+          html: htmlToInvitee,
+          attachments: [icsAttachment],
+        });
+
+        console.log(`📤 Resend response (invitee ${invitee.name}):`, inviteeRes);
+        if (inviteeRes.error) {
+          console.error(`❌ Resend error to invitee ${invitee.name}:`, inviteeRes.error);
+          emailResults.push({ 
+            recipient: `invitee-${invitee.name}`, 
+            error: inviteeRes.error.message 
+          });
+        } else {
+          emailResults.push({ 
+            recipient: `invitee-${invitee.name}`, 
+            success: true 
+          });
+        }
+      } catch (error) {
+        console.error(`❌ Failed to send email to invitee ${invitee.name}:`, error);
+        emailResults.push({ 
+          recipient: `invitee-${invitee.name}`, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+      }
+    }
+
+    // 🎯 SUMMARY RESPONSE
+    const successCount = emailResults.filter(r => r.success).length;
+    const totalRecipients = emailResults.length;
+    const hasErrors = emailResults.some(r => r.error);
+
+    return NextResponse.json({ 
+      success: true, 
+      message: `Confirmation emails sent to ${successCount}/${totalRecipients} recipients.`,
+      details: emailResults,
+      totalInvitees: validInvitees.length
+    });
 
   } catch (error) {
     console.error('❌ Failed to send confirmation email:', error);

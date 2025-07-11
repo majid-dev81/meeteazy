@@ -1,0 +1,28 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ✅ Match the users collection
+    match /users/{userId} {
+
+      // ✅ Allow authenticated users to read profile data.
+      // This is useful for features like public booking pages.
+      // For stricter privacy, change to: allow read: if request.auth.uid == userId;
+      allow read: if request.auth != null;
+
+      // ✅ Only allow a user to create, update, or delete their own document.
+      allow write: if request.auth.uid == userId;
+
+      // --- Subcollections ---
+
+      // ✅ Only allow a user to manage their own bookings.
+      // This rule grants full control over the bookings subcollection
+      // to the user who owns it.
+      match /bookings/{bookingId} {
+        allow read, write: if request.auth.uid == userId;
+      }
+    }
+    // ❌ Implicitly deny access to all other collections
+  }
+}
